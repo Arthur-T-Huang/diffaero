@@ -29,13 +29,13 @@ loss_weights:
     oa: 4.
     jerk: 0.02
     pos: 5.
-    collision: 0.
+    collision: 1.
   quadrotor:
     vel: 1.
     oa: 1.
     jerk: 1.
     pos: 5.
-    collision: 0.
+    collision: 1.
 
 reward_weights:
   # for Reinforcement Learning

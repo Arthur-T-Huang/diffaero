@@ -1,0 +1,32 @@
+/**:
+  ros__parameters:
+    # Absolute path to the exported ONNX actor from the training run.
+    # Update this to your actual checkpoint directory.
+    onnx_path: "/home/arthur-huang/Desktop/diffaero/outputs/train/2026-04-09/19-45-56/checkpoints/exported_actor.onnx"
+
+    # Goal position in ENU (East, North, Up) metres.
+    # Corresponds to the far end of the obstacle field (env length L = 25 m).
+    goal_enu: [25.0, 0.0, 1.5]
+
+    # Navigation speed — training range is [3, 6] m/s. Use 4.5 for first tests.
+    max_vel: 4.5
+
+    # Action bounds — must match the training dynamics (pmc.yaml).
+    # max_acc.xy default=20, max_acc.z default=40 — use lower values for safety.
+    max_acc_xy: 15.0
+    max_acc_z:  32.0
+
+    # Sensor config — must match cfg/sensor/camera.yaml
+    max_depth_range: 5.0
+
+    # Policy + control frequency (matches env dt = 0.0333 s)
+    control_freq: 30.0
+
+    # Velocity EMA smoothing factor (matches pmc.yaml vel_ema_factor.default)
+    vel_ema_factor: 0.1
+
+    # Depth image topic published by the Gazebo bridge
+    depth_topic: "/depth_camera"
+
+    # Hover at this altitude (metres) before engaging the policy
+    takeoff_altitude: 1.5

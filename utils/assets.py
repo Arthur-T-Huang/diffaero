@@ -259,10 +259,10 @@ class ObstacleManager:
 
         obstacle_pos = drone_init_pos.unsqueeze(1) + relpos2drone # [n_resets, n_obstacles, 3]
         self.p_obstacles[env_idx] = obstacle_pos
-        
+
         # assert torch.all(torch.norm(self.p_obstacles[env_idx] - target_pos.unsqueeze(1), dim=-1) >= safety_range)
         # assert torch.all(torch.norm(self.p_obstacles[env_idx] - drone_init_pos.unsqueeze(1), dim=-1) >= safety_range)
-        
+
         L, H = env_spacing, self.height_scale * env_spacing
         if self.walls:
             zeros = torch.zeros_like(L)

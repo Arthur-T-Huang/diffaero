@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<!--
+  iris_depth_camera: PX4 iris model extended with a front-facing depth camera.
+
+  Camera spec matches DiffAero cfg/sensor/camera.yaml:
+    horizontal_fov : 86°  (1.5009831567 rad)
+    resolution     : 320 x 180  (downsampled to 16x9 in the policy node)
+    max_range      : 5.0 m
+    onboard_position: [0.2, 0, 0.05] m from body centre
+
+  To use with PX4 SITL (Gazebo Harmonic), set:
+    export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:<path>/models
+    PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL=iris_depth_camera PX4_GZ_WORLD=obstacle_field
+
+  NOTE: If PX4's own gz-models are not available via model:// URI, you may need to
+  copy this file to PX4-Autopilot/Tools/simulation/gz/models/iris_depth_camera/
+-->
+<sdf version="1.9">
+  <model name="iris_depth_camera">
+
+    <!--
+      Merge-include the stock PX4 iris.
+      This requires Gazebo Harmonic (8+) or Ignition Garden (7+).
+      If your Gazebo version is older (Fortress 6), replace this block
+      with the full iris SDF from PX4-Autopilot/Tools/simulation/gz/models/iris/
+    -->
+    <include merge="true">
+      <uri>model://iris</uri>
+    </include>
+
+    <!-- ===== Depth camera sensor link ===== -->
+    <link name="depth_camera_link">
+      <!-- Mount: 0.2 m forward, 0.05 m up, 0° pitch (slight downward in pmc model is ±5°) -->
+      <pose relative_to="base_link">0.2 0.0 0.05 0 0 0</pose>
+
+      <inertial>
+        <mass>0.02</mass>
+        <inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz></inertia>
+      </inertial>
+
+      <sensor name="depth_camera" type="depth_camera">
+        <update_rate>30</update_rate>
+        <!-- Topic published into Gazebo transport; bridged to ROS 2 in sitl.launch.py -->
+        <topic>/depth_camera/depth/image_raw</topic>
+        <gz_frame_id>depth_camera_link</gz_frame_id>
+
+        <camera>
+          <!-- 86° horizontal FOV = 1.5009831567 rad -->
+          <horizontal_fov>1.5009831567</horizontal_fov>
+          <image>
+            <!-- Render at 320x180 for visual fidelity; policy node downsamples to 16x9 -->
+            <width>320</width>
+            <height>180</height>
+            <format>R_FLOAT32</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <!-- Slightly beyond max_range so we still detect at exactly 5 m -->
+            <far>5.5</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </camera>
+      </sensor>
+    </link>
+
+    <!-- Fixed joint: attach depth camera to iris body -->
+    <joint name="depth_camera_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>depth_camera_link</child>
+    </joint>
+
+  </model>
+</sdf>

@@ -195,8 +195,8 @@ def discrete_point_mass_dynamics_local(
     control_delay_factor = 1 - torch.exp(-lmbda*dt)
     a_thrust_cmd_local = U
     a_thrust_cmd = mvp(Rz, a_thrust_cmd_local)
-    next_a = torch.lerp(a_thrust, a_thrust_cmd, control_delay_factor) - D * v
-    next_v = v + dt * (0.5 * (a_thrust + next_a) + G_vec)
+    next_a = torch.lerp(a_thrust, a_thrust_cmd, control_delay_factor)
+    next_v = v + dt * (0.5 * (a_thrust + next_a) + G_vec - D * v)
     
     next_state = torch.cat([next_p, next_v, next_a], dim=-1)
     return next_state
@@ -215,8 +215,8 @@ def discrete_point_mass_dynamics_world(
     next_p = p + dt * (v + 0.5 * (a_thrust + G_vec) * dt)
     control_delay_factor = 1 - torch.exp(-lmbda*dt)
     a_thrust_cmd = U
-    next_a = torch.lerp(a_thrust, a_thrust_cmd, control_delay_factor) - D * v
-    next_v = v + dt * (0.5 * (a_thrust + next_a) + G_vec)
+    next_a = torch.lerp(a_thrust, a_thrust_cmd, control_delay_factor)
+    next_v = v + dt * (0.5 * (a_thrust + next_a) + G_vec - D * v)
     
     next_state = torch.cat([next_p, next_v, next_a], dim=-1)
     return next_state

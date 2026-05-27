@@ -59,7 +59,7 @@ class ObstacleAvoidance(BaseEnv):
         
         self.r_drone: float = cfg.r_drone
         self.obstacle_nearest_points = torch.empty(self.n_envs, self.n_obstacles, 3, device=device)
-    
+
     @timeit
     def get_state(self, with_grad=False):
         dist2obstacles, nearest_points2obstacles = self.obstacle_manager.nearest_distance_to_obstacles(self.p.unsqueeze(1))
@@ -175,6 +175,11 @@ class ObstacleAvoidance(BaseEnv):
         avoiding_reward = torch.where(approaching, avoiding_vel, 0.) * dangerous_factor # [n_envs, n_obstacles]
         avoiding_reward = avoiding_reward[torch.arange(self.n_envs, device=self.device), most_dangerous] # [n_envs]
         oa_loss = approaching_penalty - 0.5 * avoiding_reward
+        # speed-aware proximity penalty — penalises speed near obstacles regardless
+        # of direction, so the policy must decelerate in cluttered space rather
+        # than only when directly approaching.
+        speed = self._v.norm(dim=-1, keepdim=True) # [n_envs, 1]
+        speed_proximity_loss = (speed * dangerous_factor.pow(2)).max(dim=-1).values # [n_envs]
         
         collision_loss = self.collision().float()
         arrive_loss = 1 - torch.norm(self.p - self.target_pos, dim=-1).lt(0.5).float()
@@ -190,10 +195,12 @@ class ObstacleAvoidance(BaseEnv):
                 action = self.dynamics.local2world(action)
             jerk_loss = F.mse_loss(self.dynamics.a_thrust, action, reduction="none").sum(dim=-1) + \
                         F.mse_loss(torch.norm(self.dynamics.a_thrust, dim=-1), torch.norm(action, dim=-1), reduction="none") * 5
+            speed_oa_weight = float(getattr(self.loss_weights.pointmass, "speed_oa", 0.0))
             total_loss = (
                 self.loss_weights.pointmass.vel * vel_loss +
                 self.loss_weights.pointmass.z * z_loss +
                 self.loss_weights.pointmass.oa * oa_loss +
+                speed_oa_weight * speed_proximity_loss +
                 self.loss_weights.pointmass.jerk * jerk_loss +
                 self.loss_weights.pointmass.pos * pos_loss +
                 self.loss_weights.pointmass.collision * collision_loss
@@ -216,11 +223,12 @@ class ObstacleAvoidance(BaseEnv):
                 "jerk_loss": jerk_loss.mean().item(),
                 "collision_loss": collision_loss.mean().item(),
                 "oa_loss": oa_loss.mean().item(),
+                "speed_oa_loss": speed_proximity_loss.mean().item(),
                 "total_loss": total_loss.mean().item(),
                 "total_reward": total_reward.mean().item()
             }
         else:
-            pos_loss = -(-(self._p-self.target_pos).norm(dim=-1)).exp()
+            pos_loss = 1 - (-(self._p-self.target_pos).norm(dim=-1)).exp()
             
             vel_diff = (self._v - self.target_vel).norm(dim=-1)
             vel_loss = F.smooth_l1_loss(vel_diff, torch.zeros_like(vel_diff), reduction="none")

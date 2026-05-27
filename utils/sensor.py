@@ -45,10 +45,10 @@ def raydist3d_sphere(
     rel_pos = obst_pos.unsqueeze(1) - start # [m_spheres, n_rays, 3]
     rel_dist = torch.norm(rel_pos, dim=-1) # [m_spheres, n_rays]
     costheta = torch.cosine_similarity(rel_pos, direction, dim=-1) # [m_spheres, n_rays]
-    sintheta = torch.where(costheta>0, torch.sqrt(1 - costheta**2), 0.9) # [m_spheres, n_rays]
+    sintheta = torch.sqrt((1 - costheta.clamp(-1, 1)**2).clamp(min=0)) # [m_spheres, n_rays]
     dist_center2ray = rel_dist * sintheta # [m_spheres, n_rays]
     obst_r = obst_r.unsqueeze(1) # [m_spheres, 1]
-    raydist = rel_dist * costheta - torch.sqrt(torch.pow(obst_r, 2) - torch.pow(dist_center2ray, 2)) # [m_spheres, n_rays]
+    raydist = rel_dist * costheta - torch.sqrt((obst_r**2 - dist_center2ray**2).clamp(min=0)) # [m_spheres, n_rays]
     valid = torch.logical_and(dist_center2ray < obst_r, costheta > 0) # [m_spheres, n_rays]
     raydist_valid = torch.where(valid, raydist, max_dist) # [m_spheres, n_rays]
     return raydist_valid
@@ -345,7 +345,7 @@ class RelativePositionSensor:
         obst_relpos = nearest_points2obstacles - pos.unsqueeze(1)
         sorted_idx = dist2obstacles.argsort(dim=-1).unsqueeze(-1).expand(-1, -1, 3)
         sorted_obst_relpos = obst_relpos.gather(dim=1, index=sorted_idx) # [n_envs, n_obstacles, 3]
-        return sorted_obst_relpos
+        return sorted_obst_relpos, None
 
 
 def build_sensor(cfg: DictConfig, device: torch.device) -> Union[Camera, LiDAR, RelativePositionSensor]:
