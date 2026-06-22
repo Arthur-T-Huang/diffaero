@@ -59,6 +59,10 @@ class ObstacleAvoidance(BaseEnv):
         
         self.r_drone: float = cfg.r_drone
         self.obstacle_nearest_points = torch.empty(self.n_envs, self.n_obstacles, 3, device=device)
+        # previous step's smoothed-velocity xy direction, used by the yaw-smoothness
+        # loss term to penalise rapid changes in heading (a v5 regularizer
+        # inspired by the EMA-smoothed yaw alignment in arXiv:2509.08177).
+        self.prev_v_ema_xy = torch.zeros(self.n_envs, 2, device=device)
 
     @timeit
     def get_state(self, with_grad=False):
@@ -180,7 +184,45 @@ class ObstacleAvoidance(BaseEnv):
         # than only when directly approaching.
         speed = self._v.norm(dim=-1, keepdim=True) # [n_envs, 1]
         speed_proximity_loss = (speed * dangerous_factor.pow(2)).max(dim=-1).values # [n_envs]
-        
+
+        # yaw-alignment loss (adapted from arXiv:2509.08177): penalises the
+        # angle between the EMA motion direction and the commanded direction
+        # in the xy plane. For point-mass dynamics yaw is kinematically pinned
+        # to v_ema, so this term effectively pushes v_ema to follow target_vel.
+        if hasattr(self.dynamics, "_vel_ema"):
+            v_ema_xy = self.dynamics._vel_ema[..., :2]
+            target_vel_xy = self.target_vel[..., :2]
+            v_ema_speed = v_ema_xy.norm(dim=-1)
+            target_speed = target_vel_xy.norm(dim=-1)
+            cos_align = (v_ema_xy * target_vel_xy).sum(dim=-1) / \
+                (v_ema_speed * target_speed).clamp(min=1e-6)
+            yaw_align_mask = (v_ema_speed > 0.1) & (target_speed > 0.1)
+            yaw_align_loss = torch.where(
+                yaw_align_mask, 1.0 - cos_align, torch.zeros_like(cos_align)
+            )
+        else:
+            yaw_align_loss = torch.zeros(self.n_envs, device=self.device)
+
+        # yaw-smoothness loss (v5, the fix for v4's misapplied alignment loss):
+        # penalises the per-step change in the EMA velocity direction in the
+        # xy plane. Matches the spirit of arXiv:2509.08177's EMA smoothing —
+        # penalises rapid heading swings without penalising the steady-state
+        # deviation needed for obstacle detours.
+        if hasattr(self.dynamics, "_vel_ema"):
+            v_ema_xy_now = self.dynamics._vel_ema[..., :2]
+            v_ema_speed_now = v_ema_xy_now.norm(dim=-1)
+            prev_speed = self.prev_v_ema_xy.norm(dim=-1)
+            cos_smooth = (v_ema_xy_now * self.prev_v_ema_xy).sum(dim=-1) / \
+                (v_ema_speed_now * prev_speed).clamp(min=1e-6)
+            yaw_smooth_mask = (v_ema_speed_now > 0.1) & (prev_speed > 0.1)
+            yaw_smooth_loss = torch.where(
+                yaw_smooth_mask, 1.0 - cos_smooth, torch.zeros_like(cos_smooth)
+            )
+            # cache for next step (detached so it doesn't accumulate BPTT history)
+            self.prev_v_ema_xy = v_ema_xy_now.detach().clone()
+        else:
+            yaw_smooth_loss = torch.zeros(self.n_envs, device=self.device)
+
         collision_loss = self.collision().float()
         arrive_loss = 1 - torch.norm(self.p - self.target_pos, dim=-1).lt(0.5).float()
         
@@ -195,12 +237,16 @@ class ObstacleAvoidance(BaseEnv):
                 action = self.dynamics.local2world(action)
             jerk_loss = F.mse_loss(self.dynamics.a_thrust, action, reduction="none").sum(dim=-1) + \
                         F.mse_loss(torch.norm(self.dynamics.a_thrust, dim=-1), torch.norm(action, dim=-1), reduction="none") * 5
-            speed_oa_weight = float(getattr(self.loss_weights.pointmass, "speed_oa", 0.0))
+            speed_oa_weight  = float(getattr(self.loss_weights.pointmass, "speed_oa", 0.0))
+            yaw_align_weight = float(getattr(self.loss_weights.pointmass, "yaw_align", 0.0))
+            yaw_smooth_weight = float(getattr(self.loss_weights.pointmass, "yaw_smooth", 0.0))
             total_loss = (
                 self.loss_weights.pointmass.vel * vel_loss +
                 self.loss_weights.pointmass.z * z_loss +
                 self.loss_weights.pointmass.oa * oa_loss +
-                speed_oa_weight * speed_proximity_loss +
+                speed_oa_weight   * speed_proximity_loss +
+                yaw_align_weight  * yaw_align_loss +
+                yaw_smooth_weight * yaw_smooth_loss +
                 self.loss_weights.pointmass.jerk * jerk_loss +
                 self.loss_weights.pointmass.pos * pos_loss +
                 self.loss_weights.pointmass.collision * collision_loss
@@ -224,6 +270,8 @@ class ObstacleAvoidance(BaseEnv):
                 "collision_loss": collision_loss.mean().item(),
                 "oa_loss": oa_loss.mean().item(),
                 "speed_oa_loss": speed_proximity_loss.mean().item(),
+                "yaw_align_loss": yaw_align_loss.mean().item(),
+                "yaw_smooth_loss": yaw_smooth_loss.mean().item(),
                 "total_loss": total_loss.mean().item(),
                 "total_reward": total_reward.mean().item()
             }
@@ -327,6 +375,7 @@ class ObstacleAvoidance(BaseEnv):
         self.progress[env_idx] = 0
         self.arrive_time[env_idx] = 0
         self.last_action[env_idx] = 0.
+        self.prev_v_ema_xy[env_idx] = 0.
         self.max_vel[env_idx] = torch.rand(
             n_resets, device=self.device) * (self.max_target_vel - self.min_target_vel) + self.min_target_vel
     

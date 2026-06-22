@@ -34,8 +34,8 @@ def main():
     collision = np.array([float(r["collision_rate"]) for r in rows])
     timeout = np.array([float(r["timeout_rate"]) for r in rows])
     n_episodes = np.array([int(r["n_episodes"]) for r in rows])
-    arrive_time = np.array([float(r["mean_arrive_time"]) for r in rows])
-    avg_vel = np.array([float(r["mean_avg_vel"]) for r in rows])
+    arrive_time = np.array([float(r["mean_arrive_time"]) if r["mean_arrive_time"] not in ("", "None") else np.nan for r in rows])
+    avg_vel = np.array([float(r["mean_avg_vel"]) if r["mean_avg_vel"] not in ("", "None") else np.nan for r in rows])
 
     x = np.arange(len(rows))
 
@@ -85,11 +85,13 @@ def main():
     b2 = ax2b.bar(x + width / 2, avg_vel, width, color="#8e24aa", label="mean avg velocity (m/s)")
 
     for bar, v in zip(b1, arrive_time):
-        ax2.text(bar.get_x() + bar.get_width() / 2, v + 0.2, f"{v:.1f}",
-                 ha="center", va="bottom", fontsize=8, color="#1976d2")
+        if not np.isnan(v):
+            ax2.text(bar.get_x() + bar.get_width() / 2, v + 0.2, f"{v:.1f}",
+                     ha="center", va="bottom", fontsize=8, color="#1976d2")
     for bar, v in zip(b2, avg_vel):
-        ax2b.text(bar.get_x() + bar.get_width() / 2, v + 0.05, f"{v:.2f}",
-                  ha="center", va="bottom", fontsize=8, color="#8e24aa")
+        if not np.isnan(v):
+            ax2b.text(bar.get_x() + bar.get_width() / 2, v + 0.05, f"{v:.2f}",
+                      ha="center", va="bottom", fontsize=8, color="#8e24aa")
 
     ax2.set_xticks(x)
     ax2.set_xticklabels(labels, rotation=25, ha="right")

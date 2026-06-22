@@ -28,6 +28,8 @@ loss_weights:
     z: 1.
     oa: 5.
     speed_oa: 0.1
+    yaw_align: 0.0
+    yaw_smooth: 0.3
     jerk: 0.01
     pos: 5.
     collision: 1.
